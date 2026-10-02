@@ -1,0 +1,9 @@
+CUSTOM 128-pt OFDM PHY -- VALIDATION REPORT
+Generated: 2026-09-30 09:51:42
+================================================================
+  [PASS]  Stage 1 - PHY Primitives                         1.0s
+  [PASS]  Stage 2 - Configurable Impair.                   0.9s
+  [PASS]  Stage 3 - ZMQ E2E Pipeline                       1.0s
+  [PASS]  Stage 4 - Resampler + 2-Channel                  0.9s
+================================================================
+Overall: PASS

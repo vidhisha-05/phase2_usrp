@@ -1,0 +1,41 @@
+test,scenario,mod,N,crc_pct,ber,cfo_err_hz,sco_resid,h_mag,timing,verdict,notes
+Ideal Loopback,No impairment,BPSK,50,100.0%,0.00e+00,N/A,N/A,1.0000,N/A,PASS,Perfect conditions
+AWGN SNR=5dB,noise_v=0.11889 (true label),BPSK,30,0.0%,5.03e-01,N/A,N/A,N/A,N/A,PASS,"SNR=5dB (pkt_power=0.0447, empirical cliff 10-15dB)"
+AWGN SNR=10dB,noise_v=0.06686 (true label),BPSK,30,23.3%,7.42e-02,N/A,N/A,N/A,N/A,PASS,"SNR=10dB (pkt_power=0.0447, empirical cliff 10-15dB)"
+AWGN SNR=15dB,noise_v=0.03760 (true label),BPSK,30,100.0%,0.00e+00,N/A,N/A,N/A,N/A,PASS,"SNR=15dB (pkt_power=0.0447, empirical cliff 10-15dB)"
+AWGN SNR=20dB,noise_v=0.02114 (true label),BPSK,30,100.0%,0.00e+00,N/A,N/A,N/A,N/A,PASS,"SNR=20dB (pkt_power=0.0447, empirical cliff 10-15dB)"
+AWGN SNR=25dB,noise_v=0.01189 (true label),BPSK,30,100.0%,0.00e+00,N/A,N/A,N/A,N/A,PASS,"SNR=25dB (pkt_power=0.0447, empirical cliff 10-15dB)"
+AWGN SNR=30dB,noise_v=0.00669 (true label),BPSK,30,100.0%,0.00e+00,N/A,N/A,N/A,N/A,PASS,"SNR=30dB (pkt_power=0.0447, empirical cliff 10-15dB)"
+AWGN SNR=35dB,noise_v=0.00376 (true label),BPSK,30,100.0%,0.00e+00,N/A,N/A,N/A,N/A,PASS,"SNR=35dB (pkt_power=0.0447, empirical cliff 10-15dB)"
+MP: Flat,"taps=1, noise=0.005",BPSK,30,100.0%,N/A,N/A,N/A,1.0005,N/A,PASS,ZF equalization applied
+MP: Weak,"taps=2, noise=0.005",BPSK,30,100.0%,N/A,N/A,N/A,1.0218,N/A,PASS,ZF equalization applied
+MP: Mid,"taps=2, noise=0.005",BPSK,30,100.0%,N/A,N/A,N/A,1.0825,N/A,PASS,ZF equalization applied
+MP: Strong,"taps=2, noise=0.005",BPSK,30,100.0%,N/A,N/A,N/A,1.1701,N/A,PASS,ZF equalization applied
+CFO=500Hz,"true_cfo=500Hz,noise=0.005",BPSK,20,90.0%,N/A,113.7,N/A,N/A,N/A,PASS,No oracle CFO used (threshold raised to 70%)
+CFO=1000Hz,"true_cfo=1000Hz,noise=0.005",BPSK,20,90.0%,N/A,109.2,N/A,N/A,N/A,PASS,No oracle CFO used (threshold raised to 70%)
+CFO=2000Hz,"true_cfo=2000Hz,noise=0.005",BPSK,20,90.0%,N/A,103.4,N/A,N/A,N/A,PASS,No oracle CFO used (threshold raised to 70%)
+CFO=4000Hz,"true_cfo=4000Hz,noise=0.005",BPSK,20,90.0%,N/A,102.4,N/A,N/A,N/A,PASS,No oracle CFO used (threshold raised to 70%)
+CFO=6000Hz,"true_cfo=6000Hz,noise=0.005",BPSK,20,90.0%,N/A,106.6,N/A,N/A,N/A,PASS,No oracle CFO used (threshold raised to 70%)
+CFO=8000Hz,"true_cfo=8000Hz,noise=0.005",BPSK,20,90.0%,N/A,117.0,N/A,N/A,N/A,PASS,No oracle CFO used (threshold raised to 70%)
+SCO=0.5ppm,SCO=0.5ppm+CFO=1kHz,BPSK,20,95.0%,N/A,N/A,3.44e-02 (b@m3),N/A,N/A,PASS,Pilot LS+IIR SCO tracking; CRC is primary proof; b@m3 is estimate not error
+SCO=1.0ppm,SCO=1.0ppm+CFO=1kHz,BPSK,20,95.0%,N/A,N/A,3.35e-02 (b@m3),N/A,N/A,PASS,Pilot LS+IIR SCO tracking; CRC is primary proof; b@m3 is estimate not error
+SCO=2.0ppm,SCO=2.0ppm+CFO=1kHz,BPSK,20,95.0%,N/A,N/A,3.35e-02 (b@m3),N/A,N/A,PASS,Pilot LS+IIR SCO tracking; CRC is primary proof; b@m3 is estimate not error
+SCO=5.0ppm,SCO=5.0ppm+CFO=1kHz,BPSK,20,95.0%,N/A,N/A,3.35e-02 (b@m3),N/A,N/A,PASS,Pilot LS+IIR SCO tracking; CRC is primary proof; b@m3 is estimate not error
+SCO=10.0ppm,SCO=10.0ppm+CFO=1kHz,BPSK,20,95.0%,N/A,N/A,3.36e-02 (b@m3),N/A,N/A,PASS,Pilot LS+IIR SCO tracking; CRC is primary proof; b@m3 is estimate not error
+SCO=20.0ppm,SCO=20.0ppm+CFO=1kHz,BPSK,20,95.0%,N/A,N/A,3.37e-02 (b@m3),N/A,N/A,PASS,Pilot LS+IIR SCO tracking; CRC is primary proof; b@m3 is estimate not error
+Combined:Low,"CFO=500Hz,SCO=0.5ppm,1-tap,nv=0.01",BPSK,30,93.3%,N/A,N/A,N/A,N/A,N/A,PASS,All impairments simultaneously (threshold raised to 50%)
+Combined:Med,"CFO=2000Hz,SCO=2.0ppm,2-tap,nv=0.015",BPSK,30,93.3%,N/A,N/A,N/A,N/A,N/A,PASS,All impairments simultaneously (threshold raised to 50%)
+Combined:High,"CFO=5000Hz,SCO=5.0ppm,2-tap,nv=0.02",BPSK,30,93.3%,N/A,N/A,N/A,N/A,N/A,PASS,All impairments simultaneously (threshold raised to 50%)
+Combined:Extr,"CFO=8000Hz,SCO=10.0ppm,2-tap,nv=0.032",BPSK,30,93.3%,N/A,N/A,N/A,N/A,N/A,PASS,All impairments simultaneously (threshold raised to 50%)
+Mod:BPSK,AWGN noise=0.005 (~30dB),BPSK,30,100.0%,0.00e+00,N/A,N/A,N/A,N/A,PASS,Gray-coded BPSK
+Mod:QPSK,AWGN noise=0.005 (~30dB),QPSK,30,100.0%,0.00e+00,N/A,N/A,N/A,N/A,PASS,Gray-coded QPSK
+Mod:16QAM,AWGN noise=0.005 (~30dB),16QAM,30,100.0%,0.00e+00,N/A,N/A,N/A,N/A,PASS,Gray-coded 16QAM
+Payload:10B,10B->3 DATA syms,BPSK,20,100.0%,N/A,N/A,N/A,N/A,N/A,PASS,3 OFDM symbols
+Payload:25B,25B->5 DATA syms,BPSK,20,100.0%,N/A,N/A,N/A,N/A,N/A,PASS,5 OFDM symbols
+Payload:50B,50B->9 DATA syms,BPSK,20,100.0%,N/A,N/A,N/A,N/A,N/A,PASS,9 OFDM symbols
+Payload:100B,100B->17 DATA syms,BPSK,20,100.0%,N/A,N/A,N/A,N/A,N/A,PASS,17 OFDM symbols
+Payload:150B,150B->26 DATA syms,BPSK,20,100.0%,N/A,N/A,N/A,N/A,N/A,PASS,26 OFDM symbols
+Payload:200B,200B->34 DATA syms,BPSK,20,100.0%,N/A,N/A,N/A,N/A,N/A,PASS,34 OFDM symbols
+Resample Chain,20->25->20 MS/s polyphase FIR,BPSK,20,100.0%,N/A,N/A,N/A,N/A,phase_std=17.46deg,PASS,Kaiser FIR 64-tap beta=8
+LTF Timing,AWGN noise=0.010 (~28dB),BPSK,50,N/A,N/A,N/A,N/A,N/A,"mean=0.0,max=0,<=3samp=100%",PASS,Cross-corr with LTF template
+Phase Sanitization,"MP[1,0.2+0.1j]+AWGN noise=0.005",BPSK,30,N/A,N/A,N/A,5.6e+08x reduction,N/A,N/A,PASS,OLS detrend for HAR

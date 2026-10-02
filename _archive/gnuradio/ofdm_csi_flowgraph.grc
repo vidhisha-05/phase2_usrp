@@ -1,0 +1,667 @@
+options:
+  parameters:
+    author: Custom OFDM PHY
+    catch_exceptions: 'True'
+    category: '[GRC Hier Blocks]'
+    cmake_opt: ''
+    comment: ''
+    copyright: ''
+    description: Custom 128-pt OFDM PHY real-time CSI sensing
+    gen_cmake: 'On'
+    gen_linking: dynamic
+    generate_options: qt_gui
+    hier_block_src_path: '.:'
+    id: ofdm_csi_flowgraph
+    max_nouts: '0'
+    output_language: python
+    placement: (0, 0)
+    qt_qss_theme: ''
+    realtime_scheduling: ''
+    run: 'True'
+    run_command: '{python} -u {filename}'
+    run_options: prompt
+    sizing_mode: fixed
+    thread_safe_setters: ''
+    title: 128-pt Custom OFDM PHY -- CSI Simulation
+    window_size: (1400, 1000)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [8, 8]
+    rotation: 0
+    state: enabled
+
+blocks:
+- name: cfo_hz
+  id: variable
+  parameters:
+    comment: Injected CFO in Hz
+    value: '500.0'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [380, 8]
+    rotation: 0
+    state: enabled
+- name: hdf5_path
+  id: variable
+  parameters:
+    comment: Output HDF5 file path
+    value: '"gr_csi_output.h5"'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [920, 8]
+    rotation: 0
+    state: enabled
+- name: noise_voltage
+  id: variable
+  parameters:
+    comment: AWGN noise voltage (0.001-0.1)
+    value: '0.005'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [200, 8]
+    rotation: 0
+    state: enabled
+- name: samp_rate
+  id: variable
+  parameters:
+    comment: Sample rate (20 MHz = FS_FFT)
+    value: 20e6
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [40, 8]
+    rotation: 0
+    state: enabled
+- name: sco_ppm
+  id: variable
+  parameters:
+    comment: Injected SCO in ppm
+    value: '1.0'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [560, 8]
+    rotation: 0
+    state: enabled
+- name: session_id
+  id: variable
+  parameters:
+    comment: HDF5 session group name
+    value: '"gr_session_001"'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1100, 8]
+    rotation: 0
+    state: enabled
+- name: tap_string
+  id: variable
+  parameters:
+    comment: Multipath taps (comma-sep complex)
+    value: '"1+0j"'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [740, 8]
+    rotation: 0
+    state: enabled
+- name: channel_impairment
+  id: epy_block
+  parameters:
+    _source_code: "\n# Custom 128-pt OFDM PHY constants (from config.py)\n_PROJ  \
+      \     = \"d:/phase2\"\nFFT_SIZE    = 128\nCP_LEN      = 32\nSYMBOL_LEN  = 160\n\
+      FS_FFT      = 20e6\nFS_HW       = 25e6\nSTF_LEN     = 128\nLTF_LEN     = 320\n\
+      SIG_LEN     = 160\nNUM_ACTIVE  = 107\nNUM_DATA    = 99\nNUM_PILOTS  = 8\n\n\
+      import sys as _sys\nif _PROJ not in _sys.path:\n    _sys.path.insert(0, _PROJ)\n\
+      \nfrom gnuradio import gr\nimport pmt\n\nimport numpy as np\n\nclass blk(gr.sync_block):\n\
+      \    \"\"\"Phase-continuous AWGN + CFO + SCO + multipath impairment\"\"\"\n\n\
+      \    def __init__(self,\n                 noise_voltage=0.005,\n           \
+      \      cfo_hz=0.0,\n                 sco_ppm=0.0,\n                 tap_string='1+0j'):\n\
+      \        gr.sync_block.__init__(\n            self,\n            name='Channel\
+      \ Impairment',\n            in_sig=[np.complex64],\n            out_sig=[np.complex64])\n\
+      \        self._noise = float(noise_voltage)\n        self._cfo   = float(cfo_hz)\n\
+      \        self._sco   = float(sco_ppm)\n        self._taps  = np.array(\n   \
+      \         [complex(t.strip()) for t in str(tap_string).split(',') if t.strip()],\n\
+      \            dtype=np.complex64)\n        self._idx   = 0\n\n    def work(self,\
+      \ input_items, output_items):\n        x   = input_items[0].astype(np.complex64).copy()\n\
+      \        N   = len(x)\n        if len(self._taps) > 1:\n            x = np.convolve(x,\
+      \ self._taps)[:N]\n        n   = np.arange(self._idx, self._idx + N, dtype=np.float64)\n\
+      \        x   = x * np.exp(1j * 2.0 * np.pi * self._cfo / FS_FFT * n\n      \
+      \                   ).astype(np.complex64)\n        if self._sco != 0.0:\n \
+      \           x = x * np.exp(1j * 2.0 * np.pi * self._sco * 1e-6 * n / FS_FFT\n\
+      \                           ).astype(np.complex64)\n        s   = self._noise\
+      \ / np.sqrt(2.0)\n        noi = (s * np.random.randn(N).astype(np.float32) +\n\
+      \               1j * s * np.random.randn(N).astype(np.float32))\n        output_items[0][:]\
+      \ = (x + noi.astype(np.complex64)).astype(np.complex64)\n        self._idx +=\
+      \ N\n        return N\n"
+    affinity: ''
+    alias: channel_impairment
+    cfo_hz: cfo_hz
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    noise_voltage: noise_voltage
+    sco_ppm: sco_ppm
+    tap_string: tap_string
+  states:
+    _io_cache: ('Channel Impairment', 'blk', [('noise_voltage', '0.005'), ('cfo_hz',
+      '0.0'), ('sco_ppm', '0.0'), ('tap_string', "'1+0j'")], [('0', 'complex', 1)],
+      [('0', 'complex', 1)], 'Phase-continuous AWGN + CFO + SCO + multipath impairment',
+      [])
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [440, 280]
+    rotation: 0
+    state: enabled
+- name: csi_extractor
+  id: epy_block
+  parameters:
+    _source_code: "\n# Custom 128-pt OFDM PHY constants (from config.py)\n_PROJ  \
+      \     = \"d:/phase2\"\nFFT_SIZE    = 128\nCP_LEN      = 32\nSYMBOL_LEN  = 160\n\
+      FS_FFT      = 20e6\nFS_HW       = 25e6\nSTF_LEN     = 128\nLTF_LEN     = 320\n\
+      SIG_LEN     = 160\nNUM_ACTIVE  = 107\nNUM_DATA    = 99\nNUM_PILOTS  = 8\n\n\
+      import sys as _sys\nif _PROJ not in _sys.path:\n    _sys.path.insert(0, _PROJ)\n\
+      \nfrom gnuradio import gr\nimport pmt\n\nimport numpy as np\nimport time\n\n\
+      class blk(gr.sync_block):\n    \"\"\"LTF sync + 2-stage CFO + H_hat[107]. Emits\
+      \ PMT dicts on csi_out.\"\"\"\n\n    def __init__(self, n_data_symbols=0):\n\
+      \        gr.sync_block.__init__(\n            self,\n            name='CSI Extractor\
+      \ (128-pt)',\n            in_sig=[np.complex64],\n            out_sig=[])\n\
+      \        self.message_port_register_out(pmt.intern('csi_out'))\n        self._buf_len\
+      \ = (STF_LEN + LTF_LEN + SIG_LEN +\n                         int(n_data_symbols)\
+      \ * SYMBOL_LEN + 64)\n        self._pending = []\n        self._seq     = 0\n\
+      \        self._sync    = None\n\n    def _get_sync(self):\n        if self._sync\
+      \ is None:\n            import sync as _s\n            self._sync = _s\n   \
+      \     return self._sync\n\n    def work(self, input_items, output_items):\n\
+      \        inp  = np.array(input_items[0], dtype=np.complex64)\n        base =\
+      \ self.nitems_read(0)\n        tags = self.get_tags_in_window(0, 0, len(inp),\
+      \ pmt.intern('pkt_start'))\n        ptr  = 0\n        for tag in sorted(tags,\
+      \ key=lambda t: t.offset):\n            lo = int(tag.offset - base)\n      \
+      \      self._feed(inp[ptr:lo])\n            ptr = lo\n            self._pending.append([pmt.to_float(tag.value),\n\
+      \                                   np.array([], dtype=np.complex64)])\n   \
+      \     self._feed(inp[ptr:])\n        self._flush()\n        return len(input_items[0])\n\
+      \n    def _feed(self, chunk):\n        for e in self._pending:\n           \
+      \ need = self._buf_len - len(e[1])\n            if need > 0:\n             \
+      \   e[1] = np.concatenate([e[1], chunk[:need].astype(np.complex64)])\n\n   \
+      \ def _flush(self):\n        done          = [(c, b) for c, b in self._pending\
+      \ if len(b) >= self._buf_len]\n        self._pending = [(c, b) for c, b in self._pending\
+      \ if len(b) <  self._buf_len]\n        s = self._get_sync()\n        for cfo,\
+      \ buf in done:\n            try:\n                pc   = s.apply_cfo_correction(buf,\
+      \ cfo)\n                s1   = STF_LEN + 64\n                s2   = s1 + FFT_SIZE\n\
+      \                fine = s.estimate_fine_cfo(pc[s1:s1 + FFT_SIZE],\n        \
+      \                                   pc[s2:s2 + FFT_SIZE])\n                H\
+      \    = s.extract_csi(pc, ltf_start=STF_LEN,\n                              \
+      \       total_cfo_hz=cfo + fine)\n                valid = (not np.any(np.isnan(H))\
+      \ and np.mean(np.abs(H)) > 0.05)\n                d = pmt.make_dict()\n    \
+      \            d = pmt.dict_add(d, pmt.intern('seq'),         pmt.from_long(self._seq))\n\
+      \                d = pmt.dict_add(d, pmt.intern('timestamp'),   pmt.from_double(time.time()))\n\
+      \                d = pmt.dict_add(d, pmt.intern('cfo_hz'),      pmt.from_double(float(cfo\
+      \ + fine)))\n                d = pmt.dict_add(d, pmt.intern('H_hat_valid'),\
+      \ pmt.from_bool(bool(valid)))\n                if valid:\n                 \
+      \   h_v = pmt.init_c32vector(len(H), [complex(v) for v in H.tolist()])\n   \
+      \                 d   = pmt.dict_add(d, pmt.intern('H_hat'), h_v)\n        \
+      \        self.message_port_pub(pmt.intern('csi_out'), d)\n                self._seq\
+      \ += 1\n            except Exception:\n                pass\n"
+    affinity: ''
+    alias: csi_extractor
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    n_data_symbols: '0'
+  states:
+    _io_cache: ('CSI Extractor (128-pt)', 'blk', [('n_data_symbols', '0')], [('0',
+      'complex', 1)], [('csi_out', 'message', 1)], 'LTF sync + 2-stage CFO + H_hat[107].
+      Emits PMT dicts on csi_out.', [])
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [880, 280]
+    rotation: 0
+    state: enabled
+- name: csi_logger
+  id: epy_block
+  parameters:
+    _source_code: "\n# Custom 128-pt OFDM PHY constants (from config.py)\n_PROJ  \
+      \     = \"d:/phase2\"\nFFT_SIZE    = 128\nCP_LEN      = 32\nSYMBOL_LEN  = 160\n\
+      FS_FFT      = 20e6\nFS_HW       = 25e6\nSTF_LEN     = 128\nLTF_LEN     = 320\n\
+      SIG_LEN     = 160\nNUM_ACTIVE  = 107\nNUM_DATA    = 99\nNUM_PILOTS  = 8\n\n\
+      import sys as _sys\nif _PROJ not in _sys.path:\n    _sys.path.insert(0, _PROJ)\n\
+      \nfrom gnuradio import gr\nimport pmt\n\nimport numpy as np\nimport threading\n\
+      import queue\n\nclass blk(gr.basic_block):\n    \"\"\"Receives csi_in PMT dicts\
+      \ and writes H_hat to HDF5.\"\"\"\n\n    def __init__(self,\n              \
+      \   hdf5_path='gr_csi_output.h5',\n                 session_id='gr_session_001',\n\
+      \                 n_rx_channels=1,\n                 flush_interval=50):\n \
+      \       gr.basic_block.__init__(\n            self,\n            name='HDF5\
+      \ CSI Logger',\n            in_sig=[],\n            out_sig=[])\n        self.message_port_register_in(pmt.intern('csi_in'))\n\
+      \        self.set_msg_handler(pmt.intern('csi_in'), self._on_csi)\n        self._path\
+      \    = str(hdf5_path)\n        self._session = str(session_id)\n        self._flush_n\
+      \ = int(flush_interval)\n        self._q       = queue.Queue(maxsize=2000)\n\
+      \        self._running = True\n        self._count   = 0\n        self._thread\
+      \  = threading.Thread(target=self._run, daemon=True)\n        self._thread.start()\n\
+      \n    def _on_csi(self, msg):\n        if not pmt.is_dict(msg):\n          \
+      \  return\n        ok = pmt.to_bool(pmt.dict_ref(msg, pmt.intern('H_hat_valid'),\n\
+      \                                      pmt.from_bool(False)))\n        if not\
+      \ ok:\n            return\n        hv = pmt.dict_ref(msg, pmt.intern('H_hat'),\
+      \ pmt.PMT_NIL)\n        if not pmt.is_c32vector(hv):\n            return\n \
+      \       H  = np.array(pmt.c32vector_elements(hv), dtype=np.complex64)\n    \
+      \    ts = pmt.to_double(pmt.dict_ref(msg, pmt.intern('timestamp'),\n       \
+      \                                  pmt.from_double(0.0)))\n        sq = pmt.to_long(pmt.dict_ref(msg,\
+      \ pmt.intern('seq'),\n                                       pmt.from_long(0)))\n\
+      \        try:\n            self._q.put_nowait({'H_hat': H, 'ts': ts, 'seq':\
+      \ sq})\n        except queue.Full:\n            pass\n        self._count +=\
+      \ 1\n        if self._count % 10 == 0:\n            print(f'[Logger] {self._count}\
+      \ pkts', end='\\r', flush=True)\n\n    def _run(self):\n        import h5py\n\
+      \        buf = []\n        with h5py.File(self._path, 'a') as hf:\n        \
+      \    grp = hf.require_group(f'sessions/{self._session}/csi')\n            if\
+      \ 'antenna0' not in grp:\n                ds = grp.create_dataset(\n       \
+      \             'antenna0', shape=(0, NUM_ACTIVE),\n                    maxshape=(None,\
+      \ NUM_ACTIVE),\n                    dtype=np.complex64, chunks=(100, NUM_ACTIVE))\n\
+      \            else:\n                ds = grp['antenna0']\n            print(f'[HDF5]\
+      \ {self._path}  session={self._session}')\n            while self._running or\
+      \ not self._q.empty():\n                try:\n                    buf.append(self._q.get(timeout=0.5))\n\
+      \                except Exception:\n                    continue\n         \
+      \       if len(buf) >= self._flush_n:\n                    rows = np.array([r['H_hat']\
+      \ for r in buf], dtype=np.complex64)\n                    n0   = ds.shape[0]\n\
+      \                    ds.resize(n0 + len(rows), axis=0)\n                   \
+      \ ds[n0:n0 + len(rows)] = rows\n                    hf.flush()\n           \
+      \         print(f'[HDF5] Flushed {len(buf)} total={n0+len(rows)}')\n       \
+      \             buf.clear()\n            if buf:\n                rows = np.array([r['H_hat']\
+      \ for r in buf], dtype=np.complex64)\n                n0   = ds.shape[0]\n \
+      \               ds.resize(n0 + len(rows), axis=0)\n                ds[n0:n0\
+      \ + len(rows)] = rows\n                hf.flush()\n            print(f'[HDF5]\
+      \ Closed total={ds.shape[0]}')\n\n    def stop(self):\n        self._running\
+      \ = False\n        self._thread.join(timeout=5)\n        return True\n"
+    affinity: ''
+    alias: csi_logger
+    comment: ''
+    flush_interval: '50'
+    hdf5_path: hdf5_path
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    n_rx_channels: '1'
+    session_id: session_id
+  states:
+    _io_cache: ('HDF5 CSI Logger', 'blk', [('hdf5_path', "'gr_csi_output.h5'"), ('session_id',
+      "'gr_session_001'"), ('n_rx_channels', '1'), ('flush_interval', '50')], [('csi_in',
+      'message', 1)], [], 'Receives csi_in PMT dicts and writes H_hat to HDF5.', [])
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1152, 444.0]
+    rotation: 0
+    state: enabled
+- name: csi_monitor
+  id: epy_block
+  parameters:
+    _source_code: "\n# Custom 128-pt OFDM PHY constants (from config.py)\n_PROJ  \
+      \     = \"d:/phase2\"\nFFT_SIZE    = 128\nCP_LEN      = 32\nSYMBOL_LEN  = 160\n\
+      FS_FFT      = 20e6\nFS_HW       = 25e6\nSTF_LEN     = 128\nLTF_LEN     = 320\n\
+      SIG_LEN     = 160\nNUM_ACTIVE  = 107\nNUM_DATA    = 99\nNUM_PILOTS  = 8\n\n\
+      import sys as _sys\nif _PROJ not in _sys.path:\n    _sys.path.insert(0, _PROJ)\n\
+      \nfrom gnuradio import gr\nimport pmt\n\nimport numpy as np\nimport time\n\n\
+      _BAR = ' .:-=+#@$'\n\nclass blk(gr.basic_block):\n    \"\"\"Prints live ASCII\
+      \ |H_hat| amplitude bar per packet.\"\"\"\n\n    def __init__(self, update_every_n=5):\n\
+      \        gr.basic_block.__init__(\n            self,\n            name='CSI\
+      \ Monitor (Live)',\n            in_sig=[],\n            out_sig=[])\n      \
+      \  self.message_port_register_in(pmt.intern('csi_in'))\n        self.set_msg_handler(pmt.intern('csi_in'),\
+      \ self._on)\n        self._n  = int(update_every_n)\n        self._c  = 0\n\
+      \        self._t0 = time.monotonic()\n\n    def _on(self, msg):\n        if\
+      \ not pmt.is_dict(msg):\n            return\n        ok = pmt.to_bool(pmt.dict_ref(msg,\
+      \ pmt.intern('H_hat_valid'),\n                                       pmt.from_bool(False)))\n\
+      \        if not ok:\n            return\n        self._c += 1\n        if self._c\
+      \ % self._n != 0:\n            return\n        hv = pmt.dict_ref(msg, pmt.intern('H_hat'),\
+      \ pmt.PMT_NIL)\n        if not pmt.is_c32vector(hv):\n            return\n \
+      \       H   = np.abs(np.array(pmt.c32vector_elements(hv), dtype=np.complex64))\n\
+      \        cfo = pmt.to_double(pmt.dict_ref(msg, pmt.intern('cfo_hz'),\n     \
+      \                                     pmt.from_double(0.0)))\n        W   =\
+      \ 54\n        bar = ''.join(\n            _BAR[min(8, int(np.mean(H[int(i*len(H)/W):int((i+1)*len(H)/W)])\
+      \ * 4))]\n            for i in range(W))\n        rate = self._c / max(time.monotonic()\
+      \ - self._t0, 0.001)\n        print(f'\\r  pkt#{self._c:>5}  cfo={cfo:>8.1f}Hz\
+      \  [{bar}]  '\n              f'mean={np.mean(H):.3f}  {rate:.1f}/s', end='',\
+      \ flush=True)\n"
+    affinity: ''
+    alias: csi_monitor
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    update_every_n: '5'
+  states:
+    _io_cache: ('CSI Monitor (Live)', 'blk', [('update_every_n', '5')], [('csi_in',
+      'message', 1)], [], 'Prints live ASCII |H_hat| amplitude bar per packet.', [])
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1100, 120]
+    rotation: 0
+    state: enabled
+- name: ofdm_tx
+  id: epy_block
+  parameters:
+    _source_code: "\n# Custom 128-pt OFDM PHY constants (from config.py)\n_PROJ  \
+      \     = \"d:/phase2\"\nFFT_SIZE    = 128\nCP_LEN      = 32\nSYMBOL_LEN  = 160\n\
+      FS_FFT      = 20e6\nFS_HW       = 25e6\nSTF_LEN     = 128\nLTF_LEN     = 320\n\
+      SIG_LEN     = 160\nNUM_ACTIVE  = 107\nNUM_DATA    = 99\nNUM_PILOTS  = 8\n\n\
+      import sys as _sys\nif _PROJ not in _sys.path:\n    _sys.path.insert(0, _PROJ)\n\
+      \nfrom gnuradio import gr\nimport pmt\n\nimport numpy as np\nimport time\n\n\
+      class blk(gr.sync_block):\n    \"\"\"Custom 128-pt OFDM TX -- generates STF+LTF+SIGNAL\
+      \ packets\"\"\"\n\n    def __init__(self,\n                 mod_scheme='BPSK',\n\
+      \                 payload_bytes=60,\n                 packet_interval_s=0.01,\n\
+      \                 n_packets=0):\n        gr.sync_block.__init__(\n         \
+      \   self,\n            name='Custom OFDM TX (128-pt)',\n            in_sig=[],\n\
+      \            out_sig=[np.complex64])\n        self._payload_bytes   = int(payload_bytes)\n\
+      \        self._interval_s      = float(packet_interval_s)\n        self._n_packets\
+      \       = int(n_packets)\n        self._pkt_count       = 0\n        self._buf\
+      \             = np.array([], dtype=np.complex64)\n        self._silence_pad_len\
+      \ = int(float(packet_interval_s) * FS_FFT)\n        self._last_tx         =\
+      \ time.monotonic()\n        self.set_output_multiple(SYMBOL_LEN)\n        self._waveform\
+      \ = None\n\n    def _get_waveform(self):\n        if self._waveform is None:\n\
+      \            import waveform as _wv\n            self._waveform = _wv\n    \
+      \    return self._waveform\n\n    def work(self, input_items, output_items):\n\
+      \        out = output_items[0]\n        n   = len(out)\n        ptr = 0\n  \
+      \      wv  = self._get_waveform()\n        while ptr < n:\n            if len(self._buf)\
+      \ == 0:\n                elapsed = time.monotonic() - self._last_tx\n      \
+      \          if elapsed < self._interval_s:\n                    zeros = min(n\
+      \ - ptr,\n                                int((self._interval_s - elapsed) *\
+      \ FS_FFT))\n                    out[ptr:ptr + zeros] = 0\n                 \
+      \   ptr += zeros\n                    continue\n                if self._n_packets\
+      \ > 0 and self._pkt_count >= self._n_packets:\n                    out[ptr:]\
+      \ = 0\n                    return len(out)\n                bits = np.random.randint(0,\
+      \ 2, self._payload_bytes * 8,\n                                         dtype=np.uint8)\n\
+      \                pkt  = wv.assemble_packet(bits).astype(np.complex64)\n    \
+      \            pad  = np.zeros(self._silence_pad_len, dtype=np.complex64)\n  \
+      \              self._buf        = np.concatenate([pkt, pad])\n             \
+      \   self._pkt_count += 1\n                self._last_tx    = time.monotonic()\n\
+      \            chunk = min(n - ptr, len(self._buf))\n            out[ptr:ptr +\
+      \ chunk] = self._buf[:chunk]\n            self._buf = self._buf[chunk:]\n  \
+      \          ptr += chunk\n        return n\n"
+    affinity: ''
+    alias: ofdm_tx
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    mod_scheme: '''BPSK'''
+    n_packets: '0'
+    packet_interval_s: '0.01'
+    payload_bytes: '60'
+  states:
+    _io_cache: ('Custom OFDM TX (128-pt)', 'blk', [('mod_scheme', "'BPSK'"), ('payload_bytes',
+      '60'), ('packet_interval_s', '0.01'), ('n_packets', '0')], [], [('0', 'complex',
+      1)], 'Custom 128-pt OFDM TX -- generates STF+LTF+SIGNAL packets', [])
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [16, 388.0]
+    rotation: 0
+    state: enabled
+- name: packet_detector
+  id: epy_block
+  parameters:
+    _source_code: "\n# Custom 128-pt OFDM PHY constants (from config.py)\n_PROJ  \
+      \     = \"d:/phase2\"\nFFT_SIZE    = 128\nCP_LEN      = 32\nSYMBOL_LEN  = 160\n\
+      FS_FFT      = 20e6\nFS_HW       = 25e6\nSTF_LEN     = 128\nLTF_LEN     = 320\n\
+      SIG_LEN     = 160\nNUM_ACTIVE  = 107\nNUM_DATA    = 99\nNUM_PILOTS  = 8\n\n\
+      import sys as _sys\nif _PROJ not in _sys.path:\n    _sys.path.insert(0, _PROJ)\n\
+      \nfrom gnuradio import gr\nimport pmt\n\nimport numpy as np\n\nclass blk(gr.sync_block):\n\
+      \    \"\"\"Schmidl-Cox STF detector -- adds pkt_start stream tags\"\"\"\n\n\
+      \    def __init__(self, detect_threshold=0.65, corr_window=16):\n        gr.sync_block.__init__(\n\
+      \            self,\n            name='STF Packet Detector',\n            in_sig=[np.complex64],\n\
+      \            out_sig=[np.complex64])\n        self._thresh   = float(detect_threshold)\n\
+      \        self._L        = int(corr_window)\n        self._overlap  = np.zeros(2\
+      \ * int(corr_window) - 1, dtype=np.complex64)\n        self._global   = 0\n\
+      \        self._last_det = -STF_LEN\n\n    def work(self, input_items, output_items):\n\
+      \        inp = np.array(input_items[0], dtype=np.complex64)\n        output_items[0][:]\
+      \ = inp\n        L    = self._L\n        work = np.concatenate([self._overlap,\
+      \ inp])\n        N    = len(work) - 2 * L\n        i    = 0\n        while i\
+      \ < N:\n            sa = work[i:i + L]\n            sb = work[i + L:i + 2 *\
+      \ L]\n            P  = np.sum(sa * np.conj(sb))\n            R  = np.sum(np.abs(sb)\
+      \ ** 2) + 1e-12\n            if (abs(P) ** 2) / (R ** 2) > self._thresh:\n \
+      \               g_idx = self._global - len(self._overlap) + i\n            \
+      \    if g_idx - self._last_det > STF_LEN:\n                    cfo      = float(np.angle(P))\
+      \ * FS_FFT / (2.0 * 3.14159265 * L)\n                    local_off = max(0,\
+      \ min(g_idx - (self._global - len(inp)),\n                                 \
+      \         len(inp) - 1))\n                    self.add_item_tag(\n         \
+      \               0,\n                        self.nitems_written(0) + local_off,\n\
+      \                        pmt.intern('pkt_start'),\n                        pmt.from_float(float(cfo)))\n\
+      \                    self._last_det = g_idx\n                i += STF_LEN\n\
+      \            else:\n                i += 1\n        self._overlap  = work[-(2\
+      \ * L - 1):]\n        self._global  += len(inp)\n        return len(inp)\n"
+    affinity: ''
+    alias: packet_detector
+    comment: ''
+    corr_window: '16'
+    detect_threshold: '0.65'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache: ('STF Packet Detector', 'blk', [('detect_threshold', '0.65'), ('corr_window',
+      '16')], [('0', 'complex', 1)], [('0', 'complex', 1)], 'Schmidl-Cox STF detector
+      -- adds pkt_start stream tags', [])
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [736, 380.0]
+    rotation: 0
+    state: enabled
+- name: qtgui_freq_sink
+  id: qtgui_freq_sink_x
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '1.0'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    autoscale: 'False'
+    average: '0.2'
+    axislabels: 'True'
+    bw: samp_rate
+    color1: '"blue"'
+    color10: '"dark blue"'
+    color2: '"red"'
+    color3: '"green"'
+    color4: '"black"'
+    color5: '"cyan"'
+    color6: '"magenta"'
+    color7: '"yellow"'
+    color8: '"dark red"'
+    color9: '"dark green"'
+    comment: ''
+    ctrlpanel: 'False'
+    fc: '0'
+    fftsize: '128'
+    freqhalf: 'True'
+    grid: 'True'
+    gui_hint: ''
+    label: Relative Gain
+    label1: '"Post-Channel"'
+    label10: ''''''
+    label2: ''''''
+    label3: ''''''
+    label4: ''''''
+    label5: ''''''
+    label6: ''''''
+    label7: ''''''
+    label8: ''''''
+    label9: ''''''
+    legend: 'True'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    name: '"OFDM Spectrum (128-pt)"'
+    nconnections: '1'
+    norm_window: 'False'
+    showports: 'False'
+    tr_chan: '0'
+    tr_level: '0.0'
+    tr_mode: qtgui.TRIG_MODE_FREE
+    tr_tag: '""'
+    type: complex
+    units: dB
+    update_time: '0.10'
+    width1: '1'
+    width10: '1'
+    width2: '1'
+    width3: '1'
+    width4: '1'
+    width5: '1'
+    width6: '1'
+    width7: '1'
+    width8: '1'
+    width9: '1'
+    wintype: window.WIN_BLACKMAN_hARRIS
+    ymax: '10'
+    ymin: '-140'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [664, 628.0]
+    rotation: 0
+    state: enabled
+- name: qtgui_time_sink
+  id: qtgui_time_sink_x
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '1.0'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    autoscale: 'True'
+    axislabels: 'True'
+    color1: blue
+    color10: dark blue
+    color2: red
+    color3: green
+    color4: black
+    color5: cyan
+    color6: magenta
+    color7: yellow
+    color8: dark red
+    color9: dark green
+    comment: ''
+    ctrlpanel: 'False'
+    entags: 'True'
+    grid: 'True'
+    gui_hint: ''
+    label1: '"I"'
+    label10: Signal 10
+    label2: '"Q"'
+    label3: '""'
+    label4: '""'
+    label5: '""'
+    label6: Signal 6
+    label7: Signal 7
+    label8: Signal 8
+    label9: Signal 9
+    legend: 'True'
+    marker1: '-1'
+    marker10: '-1'
+    marker2: '-1'
+    marker3: '-1'
+    marker4: '-1'
+    marker5: '-1'
+    marker6: '-1'
+    marker7: '-1'
+    marker8: '-1'
+    marker9: '-1'
+    name: '"OFDM TX Waveform"'
+    nconnections: '1'
+    size: '1024'
+    srate: samp_rate
+    stemplot: 'False'
+    style1: '1'
+    style10: '1'
+    style2: '1'
+    style3: '1'
+    style4: '1'
+    style5: '1'
+    style6: '1'
+    style7: '1'
+    style8: '1'
+    style9: '1'
+    tr_chan: '0'
+    tr_delay: '0'
+    tr_level: '0.0'
+    tr_mode: qtgui.TRIG_MODE_FREE
+    tr_slope: qtgui.TRIG_SLOPE_POS
+    tr_tag: '""'
+    type: complex
+    update_time: '0.10'
+    width1: '1'
+    width10: '1'
+    width2: '1'
+    width3: '1'
+    width4: '1'
+    width5: '1'
+    width6: '1'
+    width7: '1'
+    width8: '1'
+    width9: '1'
+    ylabel: Amplitude
+    ymax: '2'
+    ymin: '-2'
+    yunit: '""'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [376, 532.0]
+    rotation: 0
+    state: enabled
+- name: throttle
+  id: blocks_throttle
+  parameters:
+    affinity: ''
+    alias: throttle
+    comment: ''
+    ignoretag: 'True'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samples_per_second: samp_rate
+    type: complex
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [220, 280]
+    rotation: 0
+    state: enabled
+
+connections:
+- [channel_impairment, '0', packet_detector, '0']
+- [channel_impairment, '0', qtgui_freq_sink, '0']
+- [csi_extractor, csi_out, csi_logger, csi_in]
+- [csi_extractor, csi_out, csi_monitor, csi_in]
+- [ofdm_tx, '0', throttle, '0']
+- [packet_detector, '0', csi_extractor, '0']
+- [throttle, '0', channel_impairment, '0']
+- [throttle, '0', qtgui_time_sink, '0']
+
+metadata:
+  file_format: 1
+  grc_version: 3.10.12.0
