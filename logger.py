@@ -131,7 +131,7 @@ class CSILogger:
             # F-04 FIX: Only log CSI for CRC-passing packets (matches design contract).
             # CRC failures indicate corrupted timing/sync — CSI from those frames is
             # unreliable and must NOT be written to the HAR training dataset.
-            if not record.get('crc_ok', True):
+            if record.get('crc_ok') is not True:
                 continue
 
             self._buf_ant0.append(record['H_hat'])

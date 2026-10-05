@@ -159,19 +159,48 @@ def tx_loop(usrp,
             pkt_hw = waveform.resample_20to25(pkt_bb)
             burst  = np.concatenate([guard_hw, pkt_hw]).astype(np.complex64)
 
+            # Validate the requested start-to-start interval against the
+            # actual burst duration for the selected payload/modulation.
+            burst_duration_s = len(burst) / float(cfg.FS_HW)
+
+            if not np.isfinite(packet_interval_s) or packet_interval_s <= 0:
+                raise ValueError(
+                    f"TX packet interval must be finite and > 0, "
+                    f"got {packet_interval_s!r}"
+                )
+
+            if packet_interval_s < burst_duration_s:
+                raise ValueError(
+                    f"TX packet interval {packet_interval_s * 1e6:.3f} us "
+                    f"is shorter than the burst duration "
+                    f"{burst_duration_s * 1e6:.3f} us "
+                    f"for payload={payload_bytes} B, modulation={modulation}. "
+                    f"Increase --interval."
+                )
+
             md = uhd.types.TXMetadata()
             md.start_of_burst = True
             md.end_of_burst = False
             md.has_time_spec = True
             md.time_spec = uhd.types.TimeSpec(tx_time)
 
-            tx_streamer.send(burst, md)
+            sent = tx_streamer.send(burst, md)
+            if sent != len(burst):
+                raise RuntimeError(
+                    f"TX short send: requested {len(burst)} samples, sent {sent}"
+                )
 
             eob_md = uhd.types.TXMetadata()
             eob_md.start_of_burst = False
             eob_md.end_of_burst = True
             eob_md.has_time_spec = False
-            tx_streamer.send(np.zeros(1, dtype=np.complex64), eob_md)
+            eob_samples = np.zeros(1, dtype=np.complex64)
+            sent = tx_streamer.send(eob_samples, eob_md)
+            if sent != len(eob_samples):
+                raise RuntimeError(
+                    f"TX EOB short send: requested {len(eob_samples)} samples, sent {sent}"
+                )
+
             seq += 1
             if seq % 20 == 0:
                 print(f"[tx] Sent {seq} packets")
@@ -187,7 +216,13 @@ def tx_loop(usrp,
     md = uhd.types.TXMetadata()
     md.start_of_burst = False
     md.end_of_burst   = True
-    tx_streamer.send(np.zeros(1, dtype=np.complex64), md)
+    eob_samples = np.zeros(1, dtype=np.complex64)
+    sent = tx_streamer.send(eob_samples, md)
+    if sent != len(eob_samples):
+        raise RuntimeError(
+            f"TX cleanup EOB short send: "
+            f"requested {len(eob_samples)} samples, sent {sent}"
+        )
     print(f"[tx] TX loop finished after {seq} packets.")
 
 
@@ -274,7 +309,28 @@ def rx_loop(rx_streamer, csi_queue: queue.Queue, n_packets: int = 0):
                     uhd_next_time_s = block_t_s + n / float(cfg.FS_HW)
                     hw_samples_received += n
 
+                before_dropped = ring.dropped
+
                 ring.write(recv_buf[0][:n].copy())
+
+                after_dropped = ring.dropped
+
+                if after_dropped > before_dropped:
+                    dropped_now = after_dropped - before_dropped
+
+                    rx_stream_error_msg[0] = (
+                        f"Application RX ring overflow: "
+                        f"{dropped_now} hardware samples discarded "
+                        f"(cumulative dropped={after_dropped}). "
+                        f"Continuous BB/CSI sample coordinates are no longer valid."
+                    )
+
+                    print(f"[rx] ERROR: {rx_stream_error_msg[0]}")
+
+                    rx_stream_error.set()
+                    _stop.set()
+                    break
+
         rx_streamer.issue_stream_cmd(
             uhd.types.StreamCMD(uhd.types.StreamMode.stop_cont))
 

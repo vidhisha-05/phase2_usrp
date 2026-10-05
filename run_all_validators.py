@@ -1,122 +1,83 @@
-"""
-run_all_validators.py  --  Master validation runner
-Runs all simulation-mode stages sequentially, reports a final scorecard.
+"""Authoritative software regression runner for the current Phase-2 PHY.
 
-Usage:
-    python run_all_validators.py               # run stages 1-4 (sim only)
-    python run_all_validators.py --hardware    # also print hw stage instructions
-
-Each stage exits with code 0 (pass) or 1 (fail).
-Results are saved to validation_report.txt.
+This runner covers the validated software baseline only. It does not open a
+USRP and does not perform hardware validation.
 """
+
+from __future__ import annotations
 
 import subprocess
 import sys
 import time
-import os
 from datetime import datetime
+from pathlib import Path
 
-STAGES_SIM = [
-    ("Stage 1 - PHY Primitives",        "validate_stage1.py",        []),
-    ("Stage 2 - Configurable Impair.",   "validate_stage2.py",        []),
-    ("Stage 3 - ZMQ E2E Pipeline",       "validate_stage3.py",
-                                          ["--n_packets", "30"]),
-    ("Stage 4 - Resampler + 2-Channel",  "validate_stage4.py",        []),
+ROOT = Path(__file__).resolve().parent
+REPORT = ROOT / "evaluation" / "validation_report.txt"
+
+STAGES = [
+    ("Waveform unit tests", [sys.executable, "-m", "pytest", "test_waveform.py", "-q"]),
+    ("Fix 1 streaming resampler", [sys.executable, "validate_fix1_resampler.py"]),
+    ("Fix 1 realtime benchmark", [sys.executable, "validate_fix1_realtime.py"]),
+    ("Fix 2 detector indexing", [sys.executable, "validate_fix2_detector_index.py"]),
+    ("Fix 4D TX integrity", [sys.executable, "validate_fix4D_tx_integrity.py"]),
+    ("Stage 1 PHY primitives", [sys.executable, "validate_stage1.py"]),
+    ("Stage 2 configurable impairments", [sys.executable, "validate_stage2.py"]),
+    ("Stage 3 end-to-end + HDF5", [sys.executable, "validate_stage3.py", "--n_packets", "30"]),
+    ("Stage 4 resampler + alignment", [sys.executable, "validate_stage4.py"]),
 ]
 
-PASS_SYM = "PASS"
-FAIL_SYM = "FAIL"
+
+def run_one(label: str, cmd: list[str]):
+    print("\n" + "=" * 72)
+    print(f"RUNNING: {label}")
+    print("COMMAND:", " ".join(cmd))
+    print("=" * 72)
+    t0 = time.monotonic()
+    result = subprocess.run(cmd, cwd=ROOT)
+    elapsed = time.monotonic() - t0
+    return result.returncode == 0, elapsed
 
 
-def run_stage(label, script, extra_args):
-    print(f"\n{'='*64}")
-    print(f"  RUNNING: {label}")
-    print(f"{'='*64}")
-    t0  = time.monotonic()
-    cmd = [sys.executable, os.path.join(r"d:\phase2", script)] + extra_args
-    ret = subprocess.run(cmd, cwd=r"d:\phase2")
-    dur = time.monotonic() - t0
-    ok  = (ret.returncode == 0)
-    return ok, dur
-
-
-def main():
-    import argparse
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--hardware", action="store_true",
-                    help="Also print hardware stage instructions")
-    args = ap.parse_args()
-
-    print("\n" + "#"*64)
-    print("  CUSTOM 128-pt OFDM PHY -- FULL VALIDATION SUITE")
-    print(f"  Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("#"*64)
+def main() -> int:
+    print("\n" + "#" * 72)
+    print("CUSTOM 128-POINT OFDM PHY — SOFTWARE REGRESSION")
+    print("Started:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    print("Root:", ROOT)
+    print("#" * 72)
 
     results = []
-    for label, script, extra in STAGES_SIM:
-        ok, dur = run_stage(label, script, extra)
-        results.append((label, ok, dur))
-
-    # -- Scorecard ---------------------------------------------------------------
-    print("\n" + "="*64)
-    print("  VALIDATION SCORECARD")
-    print("="*64)
-    all_pass = True
-    lines    = []
-    for label, ok, dur in results:
-        tag  = PASS_SYM if ok else FAIL_SYM
-        line = f"  [{tag}]  {label:<44}  {dur:>6.1f}s"
-        print(line)
-        lines.append(line)
+    for label, cmd in STAGES:
+        ok, elapsed = run_one(label, cmd)
+        results.append((label, ok, elapsed))
         if not ok:
-            all_pass = False
+            print(f"\nSTOP: {label} FAILED.")
+            break
 
-    print("="*64)
-    final_sym = "[PASS] ALL SIMULATION STAGES PASSED" if all_pass else \
-                "[FAIL] ONE OR MORE STAGES FAILED"
-    print(f"\n  {final_sym}\n")
+    all_pass = len(results) == len(STAGES) and all(ok for _, ok, _ in results)
 
-    # -- Save report -------------------------------------------------------------
-    rpt_path = r"d:\phase2\validation_report.txt"
-    with open(rpt_path, 'w', encoding='utf-8') as f:
-        f.write("CUSTOM 128-pt OFDM PHY -- VALIDATION REPORT\n")
-        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write("="*64 + "\n")
-        for line in lines:
-            f.write(line + "\n")
-        f.write("="*64 + "\n")
+    print("\n" + "=" * 72)
+    print("SOFTWARE REGRESSION SCORECARD")
+    print("=" * 72)
+    for label, ok, elapsed in results:
+        print(f"[{'PASS' if ok else 'FAIL'}] {label:<40} {elapsed:7.2f}s")
+    print("=" * 72)
+    print("OVERALL:", "PASS" if all_pass else "FAIL")
+
+    REPORT.parent.mkdir(parents=True, exist_ok=True)
+    with REPORT.open("w", encoding="utf-8") as f:
+        f.write("CUSTOM 128-POINT OFDM PHY — SOFTWARE REGRESSION\n")
+        f.write(f"Generated: {datetime.now().isoformat(timespec='seconds')}\n")
+        f.write(f"Root: {ROOT}\n")
+        f.write("=" * 72 + "\n")
+        for label, ok, elapsed in results:
+            f.write(f"[{'PASS' if ok else 'FAIL'}] {label} {elapsed:.2f}s\n")
+        f.write("=" * 72 + "\n")
         f.write(f"Overall: {'PASS' if all_pass else 'FAIL'}\n")
-    print(f"  Report saved: {rpt_path}\n")
 
-    # -- Hardware instructions ---------------------------------------------------
-    if args.hardware:
-        print("-"*64)
-        print("  NEXT: HARDWARE STAGE (Stage 5)")
-        print("-"*64)
-        print("""
-  Prerequisites:
-    1. USRP B210 connected via USB3 (blue SuperSpeed port, no hub)
-    2. TX antenna on Port A (TX/RX), RX antenna on Port B (RX2)
-       CRITICAL: Do NOT swap A and B — T/R switch has ~10 dB isolation only.
-    3. Antenna separation 0.5-1.0 m at chest height 0.9 m
-
-  Step A -- Spectrum scan (pick frequency):
-    python spectrum_scan.py --band 2.4
-    -> Update USRP_CENTER_FREQ in config.py
-
-  Step B -- Hardware bring-up + CRC check:
-    Terminal 1:  python main_tx.py --mode hardware --mod BPSK
-    Terminal 2:  python validate_stage5_hardware.py --n_packets 50
-
-  Step C -- Full session dry run:
-    Terminal 1:  python main_tx.py --mode hardware
-    Terminal 2:  python main_rx.py --mode hardware --hdf5 dry_run.h5 --session_id dry_run
-
-  Expected: CRC > 90%, dropped = 0, H5 file grows steadily
-""")
-
-    sys.exit(0 if all_pass else 1)
+    print("Report:", REPORT)
+    return 0 if all_pass else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

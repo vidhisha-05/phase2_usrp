@@ -5,8 +5,8 @@ Configurable-Impairment Simulation (AWGN + CFO + SCO + Multipath)
 
 import numpy as np
 import sys
-sys.path.insert(0, r"d:\phase2")
-
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config as cfg
 import waveform
 from channel_bridge import ChannelModel

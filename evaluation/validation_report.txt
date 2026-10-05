@@ -1,0 +1,15 @@
+CUSTOM 128-POINT OFDM PHY — SOFTWARE REGRESSION
+Generated: 2026-10-03T16:20:44
+Root: D:\phase2_fix1
+========================================================================
+[PASS] Waveform unit tests 1.53s
+[PASS] Fix 1 streaming resampler 1.66s
+[PASS] Fix 1 realtime benchmark 1.94s
+[PASS] Fix 2 detector indexing 0.92s
+[PASS] Fix 4D TX integrity 0.16s
+[PASS] Stage 1 PHY primitives 0.89s
+[PASS] Stage 2 configurable impairments 0.94s
+[PASS] Stage 3 end-to-end + HDF5 0.98s
+[PASS] Stage 4 resampler + alignment 0.97s
+========================================================================
+Overall: PASS

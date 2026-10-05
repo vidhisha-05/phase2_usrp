@@ -1,0 +1,7 @@
+# Packet Capacity
+
+| Modulation | Bits_per_subcarrier | Data_subcarriers | Max_DATA_symbols | Derived_max_payload_B | Configured_max_payload_B | Capacity_check |
+| --- | --- | --- | --- | --- | --- | --- |
+| BPSK | 1 | 98 | 34 | 204 | 204 | PASS |
+| QPSK | 2 | 98 | 34 | 412 | 412 | PASS |
+| 16QAM | 4 | 98 | 34 | 829 | 829 | PASS |

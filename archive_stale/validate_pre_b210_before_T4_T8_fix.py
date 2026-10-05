@@ -30,11 +30,12 @@ Usage:
 """
 
 import sys, time, argparse
+from pathlib import Path
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-sys.path.insert(0, 'd:/phase2')
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
 from scipy.signal import resample_poly
@@ -282,94 +283,65 @@ def t3_packet_loss():
 # =============================================================================
 
 def t4_back_to_back(n_pkts: int = 5):
-    """Validate the detector at the real 200-Hz production packet cadence.
+    """Streaming back-to-back packet detection: one det.process(chunk) per burst.
 
-    Production packet starts are 5 ms apart:
-        20e6 samples/s * 0.005 s = 100000 BB samples.
+    The PacketDetector is a STREAMING detector. Each det.process(chunk) call
+    should contain exactly one packet-worth of data (guard + packet). Passing
+    the entire stream in a single call fails because the internal advance past
+    the packet (6048 samples) exceeds the packet stride (PKT_LEN+GAP ~ 4148),
+    silently skipping alternate packets.
 
-    The detector suppresses candidates for at most 6048 BB samples after a
-    detection, so the 100000-sample production interval is safely separated.
-
-    This test deliberately processes the complete production-rate stream in
-    one detector call. T_CHK separately validates arbitrary chunk boundaries.
+    This replicates exactly how rx_hardware.py and test_realtime_har_sim.py
+    use the detector: one det.process(chunk) call per received burst.
+    Guard = cfg.GUARD_SAMPLES_BB (820 samples = 41 us) = actual B210 gap.
     """
-    PACKET_INTERVAL_S  = 0.005
-    PACKET_INTERVAL_BB = int(round(cfg.FS_FFT * PACKET_INTERVAL_S))
-    GAP                 = PACKET_INTERVAL_BB - _PKT_LEN
-    MAX_SUPPRESSION     = (cfg.STF_LEN + cfg.LTF_LEN + cfg.SIG_LEN +
-                           34 * cfg.SYMBOL_LEN)
-    HEADROOM            = _PKT_LEN + cfg.STF_LEN
-    CFO_LIMIT           = 50_000
-    sigma               = 0.005
+    GAP       = cfg.GUARD_SAMPLES_BB   # 820 samples at 20 MS/s
+    sigma     = 0.005
+    CFO_LIMIT = 50_000                 # Hz
+    HEADROOM  = _PKT_LEN + GAP
 
-    if GAP <= MAX_SUPPRESSION:
-        raise RuntimeError(
-            f"Invalid T4 timing: interval={PACKET_INTERVAL_BB}, "
-            f"packet={_PKT_LEN}, gap={GAP}, "
-            f"detector suppression={MAX_SUPPRESSION}"
-        )
+    _hdr(f"T4 -- Streaming back-to-back  ({n_pkts} pkts, GUARD={GAP}-sample chunks)")
+    _stat("Guard samples (BB)", f"{GAP}  ({GAP/cfg.FS_FFT*1e6:.1f} us at 20 MS/s)")
+    _stat("Pkt length",         f"{_PKT_LEN} samples")
+    _stat("Chunk size",         f"{HEADROOM} samples (guard + pkt)")
 
-    _hdr(f'T4 — Production-rate streaming  ({n_pkts} pkts, 200-Hz cadence)')
-    _stat('Packet-start interval (BB)', f'{PACKET_INTERVAL_BB:,} samples')
-    _stat('Packet-start interval', f'{1000*PACKET_INTERVAL_S:.3f} ms')
-    _stat('Packet length', f'{_PKT_LEN:,} samples')
-    _stat('Idle gap', f'{GAP:,} samples ({GAP/cfg.FS_FFT*1e6:.2f} us)')
-    _stat('Detector max suppression', f'{MAX_SUPPRESSION:,} samples')
-
-    # Construct one continuous stream with the exact production packet-start
-    # spacing. Packet i starts at i * PACKET_INTERVAL_BB.
-    stream_parts = []
-    for i in range(n_pkts):
-        _, pkt = _make_pkt(100, 'BPSK', seed=i)
-        rx_pkt = _channel(pkt, noise=sigma, seed=i)
-        stream_parts.append(rx_pkt.astype(np.complex64))
-        stream_parts.append(np.zeros(GAP, dtype=np.complex64))
-
-    stream = np.concatenate(stream_parts).astype(np.complex64)
-
-    det = PacketDetector()
-    detections = det.process(stream)
-    valid = [(int(a), c) for a, c in detections if abs(c) < CFO_LIMIT]
-
+    det       = PacketDetector()
     n_decoded = 0
-    for i, (abs_s, cfo) in enumerate(valid[:n_pkts]):
-        win = stream[abs_s:abs_s + HEADROOM]
-        if len(win) < HEADROOM:
-            win = np.concatenate([
-                win,
-                np.zeros(HEADROOM - len(win), dtype=np.complex64)
-            ])
+    all_dets  = 0
 
-        _, crc_ok = _decode(
-            win,
-            coarse_cfo=cfo,
-            n_bytes=100,
-            mod='BPSK'
-        )
-        _stat(f'  pkt[{i}]  abs_s={abs_s}  cfo={cfo:+.1f} Hz  CRC={crc_ok}', '')
-        if crc_ok:
-            n_decoded += 1
+    for i in range(n_pkts):
+        _, pkt = _make_pkt(100, "BPSK", seed=i)
+        rx_pkt = _channel(pkt, noise=sigma, seed=i)
+        chunk  = np.concatenate([
+            np.zeros(GAP, dtype=np.complex64),
+            rx_pkt
+        ]).astype(np.complex64)
 
-    all_dets = len(valid)
+        pre_idx = det._sample_idx          # absolute start of this chunk
+        dets  = det.process(chunk)
+        valid = [(int(a), c) for a, c in dets if abs(c) < CFO_LIMIT]
+        all_dets += len(valid)
 
-    _stat('Total valid detections', f'{all_dets}/{n_pkts}')
-    _stat('CRC pass', f'{n_decoded}/{n_pkts}')
+        if valid:
+            abs_s, cfo = valid[0]
+            rel = abs_s - pre_idx          # detected position within chunk
+            win = chunk[max(0, rel): rel + HEADROOM]
+            if len(win) < HEADROOM:
+                win = np.concatenate([win, np.zeros(HEADROOM - len(win), dtype=np.complex64)])
+            _, crc_ok = _decode(win, coarse_cfo=cfo, n_bytes=100)
+            _stat(f"  pkt[{i}]  cfo={cfo:+.1f} Hz  CRC={crc_ok}", "")
+            if crc_ok:
+                n_decoded += 1
+        else:
+            _stat(f"  pkt[{i}]  NO DETECTION", "")
 
-    ok = _chk(
-        f'Detected >= {n_pkts-1}  (allow 1 missed)',
-        all_dets >= n_pkts - 1,
-        f'{all_dets}/{n_pkts}'
-    )
-    ok &= _chk(
-        f'CRC pass >= {n_pkts-1}  (allow 1 boundary miss)',
-        n_decoded >= n_pkts - 1,
-        f'{n_decoded}/{n_pkts}'
-    )
-
-    _record('T4: Back-to-back', ok, {
-        'dets': all_dets,
-        'decoded': n_decoded
-    })
+    _stat("Total valid detections", f"{all_dets}/{n_pkts}")
+    _stat("CRC pass",               f"{n_decoded}/{n_pkts}")
+    ok  = _chk(f"Detected >= {n_pkts-1}  (allow 1 missed)",
+               all_dets  >= n_pkts - 1, f"{all_dets}/{n_pkts}")
+    ok &= _chk(f"CRC pass >= {n_pkts-1}  (allow 1 boundary miss)",
+               n_decoded >= n_pkts - 1, f"{n_decoded}/{n_pkts}")
+    _record("T4: Back-to-back", ok, {"dets": all_dets, "decoded": n_decoded})
     return ok
 
 
@@ -604,277 +576,78 @@ def t7_two_rx(n_pkts: int = 500):
 def t8_long_run(n_pkts: int = 1_000):
     """Ring-buffer + detector stability over 1,000 packets.
 
-    The detector can report a packet start a few samples before the
-    streaming-chunk boundary. T8 therefore keeps a trailing look-back
-    buffer and defers a detection until the complete packet window is
-    available. No packet position is supplied to the detector or sync.
+    Reduced from 10,000 to 1,000 for simulation: 10k x ~95ms/pkt = 16 min is
+    impractical for pre-deployment checks. 1,000 packets fully exercises the
+    ring buffer, sequential-order check, and first-half/second-half CRC drift.
     """
     _hdr(f'T8 — Long-duration stability  ({n_pkts:,} packets, ring + detector)')
+    CHUNK   = cfg.ZMQ_CHUNK_SIZE
+    _, pkt  = _make_pkt(100, 'BPSK', seed=7)
+    pad     = CHUNK - (len(pkt) % CHUNK)
+    padded  = np.concatenate([pkt, np.zeros(pad, np.complex64)])
+    PKT_WIN = len(padded)
 
-    CHUNK = int(round(cfg.FS_FFT * 0.005))   # 100,000 BB samples = 5 ms
-    _, pkt = _make_pkt(100, 'BPSK', seed=7)
-
-    if len(pkt) != _PKT_LEN:
-        raise RuntimeError(
-            f'T8 packet length mismatch: {len(pkt)} != {_PKT_LEN}'
-        )
-
-    PAD = CHUNK - len(pkt)
-
-    if PAD < 0:
-        raise RuntimeError(
-            f'T8 chunk too small: CHUNK={CHUNK}, packet={len(pkt)}'
-        )
-
-    padded = np.concatenate([
-        pkt.astype(np.complex64),
-        np.zeros(PAD, dtype=np.complex64)
-    ])
-
-    PKT_WIN = _PKT_LEN + cfg.STF_LEN
-
-    det = PacketDetector()
+    det  = PacketDetector()
     ring = RingBuffer(capacity=1 << 22)
 
-    n_det = 0
-    n_h = 0
-    n_crc = 0
-    n_seq_reorder = 0
-
+    n_det = n_h = n_crc = n_seq_gap = 0
     last_abs = -1
-    look = np.array([], dtype=np.complex64)
-    pending = []
-    crc_hist = []
-
+    look     = np.array([], dtype=np.complex64)
+    crc_hist: list = []
     t0 = time.monotonic()
-
-    _stat('Packet-start interval (BB)', f'{CHUNK:,}')
-    _stat('Packet-start interval', '5.000 ms')
-    _stat('Packet length', f'{_PKT_LEN:,}')
-    _stat(
-        'Idle gap',
-        f'{PAD:,} samples ({PAD / cfg.FS_FFT * 1e6:.2f} us)'
-    )
-    _stat('Streaming chunk', f'{CHUNK:,} samples')
-    _stat(
-        'Detector max suppression',
-        f'{cfg.STF_LEN + cfg.LTF_LEN + cfg.SIG_LEN + 34 * cfg.SYMBOL_LEN:,}'
-    )
-    _stat('Packets injected', f'{n_pkts:,}')
 
     for i in range(n_pkts):
         ring.write(padded)
-
         chunk = ring.read(CHUNK)
-
-        if len(chunk) != CHUNK:
+        if len(chunk) < cfg.STF_LEN + cfg.LTF_LEN:
             continue
+        chunk_abs = det._sample_idx + len(det._buf)
+        dets      = det.process(chunk)
+        buf       = np.concatenate([look, chunk]) if len(look) else chunk
+        buf_abs_s = chunk_abs - len(look)
 
-        # Absolute coordinate of the first newly supplied BB sample.
-        chunk_abs_start = det._sample_idx + len(det._buf)
-
-        detections = det.process(chunk)
-
-        # Combine the previous tail with the current chunk.
-        #
-        # This is essential when the detector reports, for example:
-        #
-        #     chunk boundary = 100000
-        #     detection      = 99997
-        #
-        # The detection is then 3 samples before the current chunk,
-        # but its packet samples are available in the combined buffer.
-        if len(look):
-            buf = np.concatenate([
-                look,
-                chunk
-            ]).astype(np.complex64)
-
-            buf_abs_start = chunk_abs_start - len(look)
-        else:
-            buf = chunk
-            buf_abs_start = chunk_abs_start
-
-        # Retry detections deferred from the previous chunk first,
-        # followed by newly generated detections.
-        all_dets = list(pending)
-
-        all_dets.extend(
-            (int(abs_s), float(coarse_cfo))
-            for abs_s, coarse_cfo in detections
-        )
-
-        pending = []
-
-        # Absolute detector positions uniquely identify packets.
-        unique_dets = {}
-
-        for abs_s, coarse_cfo in all_dets:
-            unique_dets[abs_s] = coarse_cfo
-
-        for abs_s in sorted(unique_dets):
-            coarse_cfo = unique_dets[abs_s]
-
-            rel = abs_s - buf_abs_start
-
-            if rel < 0:
-                # Retained look-back was insufficient.
-                # Do not fabricate an alignment.
-                continue
-
-            if rel + PKT_WIN > len(buf):
-                # The detector has found the packet, but the complete
-                # extraction window is not available yet.
-                #
-                # Keep the detection and retry after the next chunk.
-                pending.append((abs_s, coarse_cfo))
-                continue
-
-            # Complete packet extraction window is available.
+        for abs_s, coarse_cfo in dets:
             n_det += 1
-
-            if last_abs >= 0 and abs_s < last_abs:
-                n_seq_reorder += 1
-
-            last_abs = abs_s
-
-            pkt_buf = buf[
-                rel:rel + PKT_WIN
-            ]
-
-            res = sync_packet(
-                pkt_buf,
-                coarse_cfo_hz=coarse_cfo,
-                n_data_symbols=0
-            )
-
-            H = res['H_hat']
-
-            if np.any(np.isnan(H)):
+            sr = int(abs_s) - int(buf_abs_s)
+            if sr < 0 or sr + PKT_WIN > len(buf):
                 continue
-
-            n_h += 1
-
-            _, ok_crc = _decode(
-                pkt_buf,
-                coarse_cfo=coarse_cfo,
-                n_bytes=100,
-                mod='BPSK'
-            )
-
-            crc_hist.append(
-                1 if ok_crc else 0
-            )
-
-            if ok_crc:
-                n_crc += 1
-
-        # Retain enough trailing samples to recover a detection that falls
-        # slightly before a future chunk boundary.
-        if len(buf) >= PKT_WIN:
-            look = buf[-PKT_WIN:].copy()
-        else:
-            look = buf.copy()
+            pkt_buf = buf[sr:sr + PKT_WIN]
+            res = sync_packet(pkt_buf, coarse_cfo, n_data_symbols=0)
+            H   = res['H_hat']
+            if not np.any(np.isnan(H)):
+                n_h += 1
+                _, ok_crc = _decode(pkt_buf, coarse_cfo, n_bytes=100)
+                crc_hist.append(1 if ok_crc else 0)
+                if ok_crc:
+                    n_crc += 1
+            if last_abs >= 0 and int(abs_s) < last_abs:
+                n_seq_gap += 1
+            last_abs = int(abs_s)
+        look = buf[-PKT_WIN:] if len(buf) >= PKT_WIN else buf
 
     elapsed = time.monotonic() - t0
+    half    = len(crc_hist) // 2
+    crc1h   = sum(crc_hist[:half])           / max(1, half)
+    crc2h   = sum(crc_hist[half:])           / max(1, len(crc_hist) - half)
+    drift   = abs(crc2h - crc1h)
 
-    half = len(crc_hist) // 2
+    _stat('Packets injected', f'{n_pkts:,}')
+    _stat('Detections',       f'{n_det:,}  ({100*n_det/n_pkts:.1f}%)')
+    _stat('H valid',          f'{n_h:,}  ({100*n_h/max(1,n_det):.1f}%)')
+    _stat('CRC pass',         f'{n_crc:,}  ({100*n_crc/max(1,n_det):.1f}%)')
+    _stat('Ring drops',       ring.dropped)
+    _stat('Seq reorders',     n_seq_gap)
+    _stat('CRC drift 1h->2h', f'{100*drift:.2f} pp')
+    _stat('Time',             f'{elapsed:.1f}s')
 
-    crc1h = (
-        sum(crc_hist[:half]) /
-        max(1, half)
-    )
-
-    crc2h = (
-        sum(crc_hist[half:]) /
-        max(1, len(crc_hist) - half)
-    )
-
-    drift = abs(crc2h - crc1h)
-
-    _stat(
-        'Detections',
-        f'{n_det:,}  ({100 * n_det / n_pkts:.1f}%)'
-    )
-
-    _stat(
-        'H valid',
-        f'{n_h:,}  ({100 * n_h / max(1, n_det):.1f}%)'
-    )
-
-    _stat(
-        'CRC pass',
-        f'{n_crc:,}  ({100 * n_crc / max(1, n_det):.1f}%)'
-    )
-
-    _stat(
-        'Ring drops',
-        ring.dropped
-    )
-
-    _stat(
-        'Seq reorders',
-        n_seq_reorder
-    )
-
-    _stat(
-        'CRC drift 1h->2h',
-        f'{100 * drift:.2f} pp'
-    )
-
-    _stat(
-        'Time',
-        f'{elapsed:.1f}s'
-    )
-
-    ok = _chk(
-        'Detection rate >= 90%',
-        n_det / n_pkts >= 0.90,
-        f'{n_det}/{n_pkts}'
-    )
-
-    ok &= _chk(
-        'H valid >= 90% of detections',
-        n_h / max(1, n_det) >= 0.90,
-        f'{n_h}/{n_det}'
-    )
-
-    ok &= _chk(
-        'CRC rate >= 85% of detections',
-        n_crc / max(1, n_det) >= 0.85,
-        f'{n_crc}/{n_det}'
-    )
-
-    ok &= _chk(
-        'Ring drops = 0',
-        ring.dropped == 0,
-        f'{ring.dropped}'
-    )
-
-    ok &= _chk(
-        'No seq reorders',
-        n_seq_reorder == 0,
-        f'{n_seq_reorder}'
-    )
-
-    ok &= _chk(
-        'CRC drift < 5 pp',
-        drift < 0.05,
-        f'{100 * drift:.2f}pp'
-    )
-
-    _record(
-        'T8: Long-run 1k',
-        ok,
-        {
-            'det': n_det,
-            'h_valid': n_h,
-            'crc': n_crc,
-            'drops': ring.dropped,
-            'drift': drift
-        }
-    )
-
+    ok  = _chk('Detection rate >= 90%',      n_det/n_pkts            >= 0.90, f'{n_det}/{n_pkts}')
+    ok &= _chk('H valid >= 90% of dets',     n_h/max(1,n_det)        >= 0.90, f'{n_h}/{n_det}')
+    ok &= _chk('CRC rate >= 85% of dets',    n_crc/max(1,n_det)      >= 0.85, f'{n_crc}/{n_det}')
+    ok &= _chk('Ring drops = 0',             ring.dropped             == 0,   f'{ring.dropped}')
+    ok &= _chk('No seq reorders',            n_seq_gap                == 0,   f'{n_seq_gap}')
+    ok &= _chk('CRC drift < 5 pp',          drift                    < 0.05, f'{100*drift:.2f}pp')
+    _record('T8: Long-run 1k', ok, {'det': n_det, 'crc': n_crc,
+                                      'drops': ring.dropped, 'drift': drift})
     return ok
 
 
@@ -886,7 +659,6 @@ def t8_long_run(n_pkts: int = 1_000):
 def t9_resample_e2e():
     _hdr('T9 — Resampling E2E: 20 MS/s TX -> resamp-up -> impair -> resamp-down -> PHY')
     _stat('NOTE', 'All decodes use DETECTOR-estimated CFO (no oracle)')
-    RESAMP_DELAY = 24
     LEAD         = cfg.STF_LEN   # silence lead-in for detector warm-up
     HEADROOM     = _PKT_LEN + LEAD
     all_ok       = True
@@ -902,9 +674,6 @@ def t9_resample_e2e():
                                  sco_ppm=0.0, seed=seed)
             rx_25 = ch.apply(tx_25)
             rx_20 = _resample_down(rx_25)
-            # Remove resample group delay
-            rx_20 = rx_20[RESAMP_DELAY:] if len(rx_20) > RESAMP_DELAY else rx_20
-
             # Build stream with silence lead-in
             stream = np.concatenate([
                 np.zeros(LEAD, dtype=np.complex64), rx_20.astype(np.complex64)
@@ -1040,7 +809,6 @@ def tc_combined_stress(n_pkts: int = 1000):
     _hdr(f'TC — Combined stress: ALL impairments + 2-RX + resamp  ({n_pkts:,} pkts)')
     _stat('NOTE', 'ALL decodes use DETECTOR-estimated CFO — zero oracle leakage')
 
-    RESAMP_DELAY = 24
     LEAD_MIN     = cfg.STF_LEN   # minimum lead-in for detector warm-up
     HEADROOM     = _PKT_LEN + LEAD_MIN * 2
 
@@ -1079,13 +847,13 @@ def tc_combined_stress(n_pkts: int = 1000):
         ch0    = ChannelModel(noise_voltage=sigma, cfo_hz=cfo, sco_ppm=sco,
                               taps=taps0, seed=i*2)
         rx0_25 = np.concatenate([lead_noise, ch0.apply(tx_25.copy())])
-        rx0_20 = _resample_down(rx0_25)[RESAMP_DELAY:]
+        rx0_20 = _resample_down(rx0_25)
 
         # Ant-1 (different taps, slightly offset CFO/noise)
         ch1    = ChannelModel(noise_voltage=sigma*1.2, cfo_hz=cfo+200,
                               sco_ppm=sco, taps=taps1, seed=i*2+1)
         rx1_25 = np.concatenate([lead_noise, ch1.apply(tx_25.copy())])
-        rx1_20 = _resample_down(rx1_25)[RESAMP_DELAY:]
+        rx1_20 = _resample_down(rx1_25)
 
         # FIX-A+B: for each antenna, run PacketDetector on full stream,
         # decode from detected position using detector-estimated CFO only.

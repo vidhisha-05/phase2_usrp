@@ -7,10 +7,9 @@ ZMQ transport itself is validated implicitly — it's a standard library.
 """
 
 import struct, threading, time, sys, os, argparse
-from pathlib import Path
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, r"d:\phase2")
 import config as cfg
 
 errors = []
@@ -121,11 +120,7 @@ def main():
     for i in range(50):
         q.put({'H_hat':     np.random.randn(cfg.NUM_ACTIVE).astype(np.complex64),
                'timestamp': time.monotonic(),
-               'abs_s':     i * (cfg.STF_LEN + cfg.LTF_LEN),
-               'seq':       i,
-               'crc_ok':    True,
-               'cfo_hz':    0.0,
-               'dropped':   0})
+               'seq':       i,'crc_ok':    True, 'dropped': 0})
     logger.stop()
     log_t.join(timeout=5)
     log_dur = time.monotonic() - t0

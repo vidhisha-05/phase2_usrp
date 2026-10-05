@@ -1,0 +1,307 @@
+options:
+  parameters:
+    author: ''
+    catch_exceptions: 'True'
+    category: '[GRC Hier Blocks]'
+    cmake_opt: ''
+    comment: ''
+    copyright: ''
+    description: ''
+    gen_cmake: 'On'
+    gen_linking: dynamic
+    generate_options: qt_gui
+    hier_block_src_path: '.:'
+    id: evaluator_csi
+    max_nouts: '0'
+    output_language: python
+    placement: (0,0)
+    qt_qss_theme: ''
+    realtime_scheduling: ''
+    run: 'True'
+    run_command: '{python} -u {filename}'
+    run_options: prompt
+    sizing_mode: fixed
+    thread_safe_setters: ''
+    title: Not titled yet
+    window_size: (1000,1000)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [8, 8]
+    rotation: 0
+    state: enabled
+
+blocks:
+- name: samp_rate
+  id: variable
+  parameters:
+    comment: ''
+    value: '32000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [200, 12]
+    rotation: 0
+    state: enabled
+- name: epy_block_0
+  id: epy_block
+  parameters:
+    _source_code: "import json\nimport threading\n\nimport numpy as np\nimport pmt\n\
+      from gnuradio import gr\n\n\nclass blk(gr.sync_block):\n    \"\"\"\n    ZMQ\
+      \ JSON CSI message parser.\n\n    Input message:\n        {\n            \"\
+      timestamp\": ...,\n            \"seq\": ...,\n            \"csi_mag\": [106\
+      \ values],\n            \"csi_phase\": [106 values],\n            \"crc_ok\"\
+      : true\n        }\n\n    Outputs:\n        port 0: CSI magnitude, 106 floats\n\
+      \        port 1: CSI phase, 106 floats\n    \"\"\"\n\n    def __init__(self):\n\
+      \        self.n_sc = 106\n\n        gr.sync_block.__init__(\n            self,\n\
+      \            name=\"CSI JSON Parser\",\n            in_sig=None,\n         \
+      \   out_sig=[\n                (np.float32, self.n_sc),\n                (np.float32,\
+      \ self.n_sc),\n            ],\n        )\n\n        self.message_port_register_in(\n\
+      \            pmt.intern(\"in\")\n        )\n\n        self.set_msg_handler(\n\
+      \            pmt.intern(\"in\"),\n            self.handle_msg\n        )\n\n\
+      \        self.mag = np.ones(\n            self.n_sc,\n            dtype=np.float32\n\
+      \        )\n\n        self.phase = np.zeros(\n            self.n_sc,\n     \
+      \       dtype=np.float32\n        )\n\n        self.lock = threading.Lock()\n\
+      \n    def handle_msg(self, msg):\n        try:\n            # ---------------------------------------------------------\n\
+      \            # Extract raw JSON bytes from the PMT message\n            # ---------------------------------------------------------\n\
+      \            if pmt.is_pair(msg):\n                msg = pmt.cdr(msg)\n\n  \
+      \          if pmt.is_u8vector(msg):\n                raw = bytes(\n        \
+      \            pmt.u8vector_elements(msg)\n                )\n\n            elif\
+      \ pmt.is_blob(msg):\n                raw = bytes(\n                    pmt.blob_data(msg)\n\
+      \                )\n\n            elif pmt.is_symbol(msg):\n               \
+      \ raw = pmt.symbol_to_string(msg).encode(\n                    \"utf-8\"\n \
+      \               )\n\n            else:\n                value = pmt.to_python(msg)\n\
+      \n                if isinstance(value, bytes):\n                    raw = value\n\
+      \n                elif isinstance(value, str):\n                    raw = value.encode(\"\
+      utf-8\")\n\n                else:\n                    return\n\n          \
+      \  # ---------------------------------------------------------\n           \
+      \ # Decode JSON\n            # ---------------------------------------------------------\n\
+      \            data = json.loads(\n                raw.decode(\"utf-8\")\n   \
+      \         )\n\n            # ---------------------------------------------------------\n\
+      \            # Convert CSI arrays to NumPy\n            # ---------------------------------------------------------\n\
+      \            mag = np.asarray(\n                data[\"csi_mag\"],\n       \
+      \         dtype=np.float32\n            )\n\n            phase = np.asarray(\n\
+      \                data[\"csi_phase\"],\n                dtype=np.float32\n  \
+      \          )\n\n            # ---------------------------------------------------------\n\
+      \            # Validate vector lengths\n            # ---------------------------------------------------------\n\
+      \            if mag.size != self.n_sc:\n                return\n\n         \
+      \   if phase.size != self.n_sc:\n                return\n\n            # ---------------------------------------------------------\n\
+      \            # Validate numerical values\n            # ---------------------------------------------------------\n\
+      \            if not np.all(np.isfinite(mag)):\n                return\n\n  \
+      \          if not np.all(np.isfinite(phase)):\n                return\n\n  \
+      \          # ---------------------------------------------------------\n   \
+      \         # DEBUG: verify that the parser receives the actual\n            #\
+      \ subcarrier-dependent CSI values.\n            # ---------------------------------------------------------\n\
+      \            print(\n                \"CSI DEBUG:\",\n                \"mag=\"\
+      ,\n                mag[0],\n                mag[53],\n                mag[-1],\n\
+      \                \"phase=\",\n                phase[0],\n                phase[53],\n\
+      \                phase[-1],\n                flush=True\n            )\n\n \
+      \           # ---------------------------------------------------------\n  \
+      \          # Update the latest CSI frame\n            # ---------------------------------------------------------\n\
+      \            with self.lock:\n                self.mag = mag.copy()\n      \
+      \          self.phase = phase.copy()\n\n        except Exception as exc:\n \
+      \           print(\n                \"CSI PARSER ERROR:\",\n               \
+      \ repr(exc),\n                flush=True\n            )\n            return\n\
+      \n    def work(self, input_items, output_items):\n        # -------------------------------------------------------------\n\
+      \        # Copy the latest CSI frame safely\n        # -------------------------------------------------------------\n\
+      \        with self.lock:\n            mag = self.mag.copy()\n            phase\
+      \ = self.phase.copy()\n\n        # -------------------------------------------------------------\n\
+      \        # Output:\n        #   port 0 -> magnitude vector\n        #   port\
+      \ 1 -> phase vector\n        # -------------------------------------------------------------\n\
+      \        output_items[0][0, :] = mag\n        output_items[1][0, :] = phase\n\
+      \n        return 1"
+    affinity: ''
+    alias: ''
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache: '(''CSI JSON Parser'', ''blk'', [], [(''in'', ''message'', 1)], [(''0'',
+      ''float'', 106), (''1'', ''float'', 106)], ''\n    ZMQ JSON CSI message parser.\n\n    Input
+      message:\n        {\n            "timestamp": ...,\n            "seq": ...,\n            "csi_mag":
+      [106 values],\n            "csi_phase": [106 values],\n            "crc_ok":
+      true\n        }\n\n    Outputs:\n        port 0: CSI magnitude, 106 floats\n        port
+      1: CSI phase, 106 floats\n    '', [])'
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [632, 216.0]
+    rotation: 0
+    state: enabled
+- name: qtgui_vector_sink_f_0
+  id: qtgui_vector_sink_f
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '1.0'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    autoscale: 'False'
+    average: '1.0'
+    color1: '"blue"'
+    color10: '"dark blue"'
+    color2: '"red"'
+    color3: '"green"'
+    color4: '"black"'
+    color5: '"cyan"'
+    color6: '"magenta"'
+    color7: '"yellow"'
+    color8: '"dark red"'
+    color9: '"dark green"'
+    comment: ''
+    grid: 'False'
+    gui_hint: ''
+    label1: ''
+    label10: ''
+    label2: ''
+    label3: ''
+    label4: ''
+    label5: ''
+    label6: ''
+    label7: ''
+    label8: ''
+    label9: ''
+    legend: 'True'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    name: CSI Phase
+    nconnections: '1'
+    ref_level: '0'
+    showports: 'False'
+    update_time: '0.10'
+    vlen: '106'
+    width1: '1'
+    width10: '1'
+    width2: '1'
+    width3: '1'
+    width4: '1'
+    width5: '1'
+    width6: '1'
+    width7: '1'
+    width8: '1'
+    width9: '1'
+    x_axis_label: Subcarrier
+    x_start: '-53'
+    x_step: '1.0'
+    x_units: k
+    y_axis_label: phase
+    y_units: rad
+    ymax: '4'
+    ymin: '-4'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [920, 336.0]
+    rotation: 0
+    state: enabled
+- name: qtgui_vector_sink_f_1
+  id: qtgui_vector_sink_f
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '1.0'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    autoscale: 'False'
+    average: '0.05'
+    color1: '"blue"'
+    color10: '"dark blue"'
+    color2: '"red"'
+    color3: '"green"'
+    color4: '"black"'
+    color5: '"cyan"'
+    color6: '"magenta"'
+    color7: '"yellow"'
+    color8: '"dark red"'
+    color9: '"dark green"'
+    comment: ''
+    grid: 'False'
+    gui_hint: ''
+    label1: ''
+    label10: ''
+    label2: ''
+    label3: ''
+    label4: ''
+    label5: ''
+    label6: ''
+    label7: ''
+    label8: ''
+    label9: ''
+    legend: 'True'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    name: CSI Magnitude
+    nconnections: '1'
+    ref_level: '0'
+    showports: 'False'
+    update_time: '0.10'
+    vlen: '106'
+    width1: '1'
+    width10: '1'
+    width2: '1'
+    width3: '1'
+    width4: '1'
+    width5: '1'
+    width6: '1'
+    width7: '1'
+    width8: '1'
+    width9: '1'
+    x_axis_label: Subcarrier
+    x_start: '-53'
+    x_step: '1.0'
+    x_units: k
+    y_axis_label: Magnitude
+    y_units: linear
+    ymax: '2'
+    ymin: '-2'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [896, 72.0]
+    rotation: 0
+    state: enabled
+- name: zeromq_sub_msg_source_0
+  id: zeromq_sub_msg_source
+  parameters:
+    address: tcp://127.0.0.1:5558
+    affinity: ''
+    alias: ''
+    bind: 'False'
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    timeout: '100'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [336, 220.0]
+    rotation: 0
+    state: enabled
+
+connections:
+- [epy_block_0, '0', qtgui_vector_sink_f_1, '0']
+- [epy_block_0, '1', qtgui_vector_sink_f_0, '0']
+- [zeromq_sub_msg_source_0, out, epy_block_0, in]
+
+metadata:
+  file_format: 1
+  grc_version: 3.10.12.0
